@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Stake Clone - Diamond Mines</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans min-h-screen flex flex-col items-center p-6">
+
+  <h1 class="text-4xl font-bold text-indigo-400 mb-6">💎 Diamond Mines - Stake Clone</h1>
+
+  <div class="w-full max-w-md bg-gray-800 p-6 rounded-xl shadow-lg">
+    <div class="mb-4">
+      <label class="block text-sm font-medium text-gray-300 mb-1">Bet Amount (₹)</label>
+      <input 
+        type="number" 
+        id="betAmount" 
+        value="10"
+        class="w-full px-3 py-2 rounded-md bg-gray-700 border border-gray-600 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      >
+    </div>
+
+    <div class="flex gap-4 mb-4">
+      <button 
+        onclick="startGame()" 
+        class="w-1/2 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-md font-semibold"
+      >
+        🎮 Start Game
+      </button>
+      <button 
+        onclick="cashout()" 
+        id="cashoutBtn" 
+        disabled 
+        class="w-1/2 py-2 bg-green-600 hover:bg-green-700 rounded-md font-semibold disabled:opacity-50"
+      >
+        💰 Cash Out
+      </button>
+    </div>
+
+    <button 
+      onclick="suggestNextTile()" 
+      class="w-full py-2 bg-yellow-500 hover:bg-yellow-600 rounded-md font-semibold mb-4"
+    >
+      💡 Suggest Next Safe Tile
+    </button>
+
+    <div 
+      id="game-info" 
+      class="text-sm text-gray-300 whitespace-pre-wrap bg-gray-700 p-3 rounded-md mb-4"
+    >
+      Balance: ₹100
+    </div>
+  </div>
+
+  <div class="grid grid-cols-5 gap-3 mt-6" id="grid"></div>
+
+  <script>
+    let gameId = null;
+    let multiplier = 1.0;
+    let balance = 100;
+
+    async function suggestNextTile() {
+      if (!gameId) return;
+
+      const res = await fetch('http://127.0.0.1:5000/ai_suggest', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ game_id: gameId })
+      });
+
+      const data = await res.json();
+      const suggestedTile = data.suggested_tile;
+      const probability = data.mine_probability;
+
+      document.getElementById('game-info').innerText += 
+        `\n💡 Suggested Tile: ${suggestedTile} (Mine Chance: ${(probability * 100).toFixed(1)}%)`;
+
+      document.querySelectorAll('.tile').forEach(tile => {
+        tile.classList.remove('ring-2', 'ring-yellow-400');
+      });
+
+      const tile = document.querySelector(`.tile[data-index='${suggestedTile}']`);
+      if (tile && !tile.classList.contains('clicked')) {
+        tile.classList.add('ring-2', 'ring-yellow-400');
+      }
+    }
+
+    async function startGame() {
+      const bet = parseFloat(document.getElementById('betAmount').value);
+      const res = await fetch('http://127.0.0.1:5000/start', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ client_seed: 'test-seed', bet_amount: bet, balance: balance })
+      });
+
+      const data = await res.json();
+      gameId = data.game_id;
+      multiplier = 1.0;
+      balance = data.balance;
+      document.getElementById("cashoutBtn").disabled = false;
+      updateInfo();
+      createGrid();
+    }
+
+    function updateInfo() {
+      document.getElementById('game-info').innerText = 
+        `Game ID: ${gameId}\nBalance: ₹${balance.toFixed(2)}\nMultiplier: x${multiplier.toFixed(2)}`;
+    }
+
+    function createGrid() {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = '';
+      for (let i = 0; i < 25; i++) {
+        const tile = document.createElement('div');
+        tile.className = 'tile w-16 h-16 bg-gray-600 border border-gray-500 flex items-center justify-center rounded-md text-lg font-bold cursor-pointer transition hover:bg-gray-500';
+        tile.dataset.index = i;
+        tile.onclick = () => handleClick(tile);
+        grid.appendChild(tile);
+      }
+    }
+
+    async function handleClick(tile) {
+      if (tile.classList.contains('clicked') || !gameId) return;
+
+      const index = parseInt(tile.dataset.index);
+      const res = await fetch('http://127.0.0.1:5000/click', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ game_id: gameId, index: index })
+      });
+
+      const data = await res.json();
+      tile.classList.add('clicked');
+
+      if (data.status === "mine") {
+        tile.innerHTML = "💣";
+        tile.classList.add('bg-red-600', 'text-white');
+        document.getElementById("cashoutBtn").disabled = true;
+        multiplier = 1.0;
+        gameId = null;
+      } else {
+        tile.innerHTML = "💎";
+        tile.classList.add('bg-green-600', 'text-white');
+        multiplier = data.multiplier;
+      }
+
+      updateInfo();
+    }
+
+    async function cashout() {
+      if (!gameId) return;
+
+      const res = await fetch('http://127.0.0.1:5000/cashout', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ game_id: gameId })
+      });
+
+      const data = await res.json();
+      balance = data.new_balance;
+      multiplier = 1.0;
+      gameId = null;
+
+      document.getElementById("cashoutBtn").disabled = true;
+      updateInfo();
+      alert("💰 Cashed out successfully!");
+    }
+  </script>
+</body>
+</html>
